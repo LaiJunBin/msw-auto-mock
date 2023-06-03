@@ -1,6 +1,7 @@
 import { OpenAPIV3 } from 'openapi-types';
 import merge from 'lodash/merge';
 import camelCase from 'lodash/camelCase';
+import { CliOptions } from './types';
 
 export interface ResponseMap {
   code: string;
@@ -23,7 +24,7 @@ export function getResIdentifierName(res: ResponseMap) {
   return camelCase(`get ${res.id}${res.code}Response`);
 }
 
-export function transformToResObject(operationCollection: OperationCollection): string {
+export function transformToResObject(operationCollection: OperationCollection, options?: CliOptions): string {
   return operationCollection
     .map(op =>
       op.response
@@ -33,7 +34,8 @@ export function transformToResObject(operationCollection: OperationCollection): 
             return '';
           }
           return `export function ${getResIdentifierName(r)}() { return ${transformJSONSchemaToFakerCode(
-            r.responses?.['application/json']
+            r.responses?.['application/json'],
+            options
           )} };\n`;
         })
         .join('\n')
@@ -44,7 +46,7 @@ export function transformToResObject(operationCollection: OperationCollection): 
 export function transformToHandlerCode(operationCollection: OperationCollection): string {
   return operationCollection
     .map(op => {
-      return `rest.${op.verb}(\`\${baseURL}${op.path}\`, (_, res, ctx) => {
+      return `rest.${op.verb}(\`${op.path}\`, (_, res, ctx) => {
         const resultArray = [${op.response.map(response => {
           const identifier = getResIdentifierName(response);
           return parseInt(response?.code!) === 204
@@ -52,14 +54,14 @@ export function transformToHandlerCode(operationCollection: OperationCollection)
             : `[ctx.status(${parseInt(response?.code!)}), ctx.json(${identifier ? `${identifier}()` : 'null'})]`;
         })}];
 
-          return res(...resultArray[next() % resultArray.length])
+          return res(...resultArray[nextValue % resultArray.length])
         }),\n`;
     })
     .join('  ')
     .trimEnd();
 }
 
-function transformJSONSchemaToFakerCode(jsonSchema?: OpenAPIV3.SchemaObject, key?: string): string {
+function transformJSONSchemaToFakerCode(jsonSchema?: OpenAPIV3.SchemaObject, options?: CliOptions, key?: string): string {
   if (!jsonSchema) {
     return 'null';
   }
@@ -70,8 +72,13 @@ function transformJSONSchemaToFakerCode(jsonSchema?: OpenAPIV3.SchemaObject, key
 
   if (Array.isArray(jsonSchema.type)) {
     return `faker.helpers.arrayElement([${jsonSchema.type
-      .map(type => transformJSONSchemaToFakerCode({ ...jsonSchema, type }))
+      .map(type => transformJSONSchemaToFakerCode({ ...jsonSchema, type }, options))
       .join(',')}])`;
+  }
+
+  if (options?.zodios && jsonSchema.$ref) {
+    const zodSchema = jsonSchema.$ref.split('/').slice(-1)[0];
+    return `generateMock(schemas.${zodSchema})`;
   }
 
   if (jsonSchema.enum) {
@@ -80,17 +87,17 @@ function transformJSONSchemaToFakerCode(jsonSchema?: OpenAPIV3.SchemaObject, key
 
   if (jsonSchema.allOf) {
     const schemas = jsonSchema.allOf as OpenAPIV3.SchemaObject[];
-    return transformJSONSchemaToFakerCode(merge({}, ...schemas));
+    return transformJSONSchemaToFakerCode(merge({}, ...schemas), options);
   }
 
   if (jsonSchema.oneOf) {
     const schemas = jsonSchema.oneOf as OpenAPIV3.SchemaObject[];
-    return `faker.helpers.arrayElement([${schemas.map(i => transformJSONSchemaToFakerCode(i))}])`;
+    return `faker.helpers.arrayElement([${schemas.map(i => transformJSONSchemaToFakerCode(i, options))}])`;
   }
 
   if (jsonSchema.anyOf) {
     const schemas = jsonSchema.anyOf as OpenAPIV3.SchemaObject[];
-    return `faker.helpers.arrayElement([${schemas.map(i => transformJSONSchemaToFakerCode(i))}])`;
+    return `faker.helpers.arrayElement([${schemas.map(i => transformJSONSchemaToFakerCode(i, options))}])`;
   }
 
   switch (jsonSchema.type) {
@@ -104,21 +111,22 @@ function transformJSONSchemaToFakerCode(jsonSchema?: OpenAPIV3.SchemaObject, key
     case 'object':
       if (!jsonSchema.properties && typeof jsonSchema.additionalProperties === 'object') {
         return `[...new Array(5).keys()].map(_ => ({ [faker.lorem.word()]: ${transformJSONSchemaToFakerCode(
-          jsonSchema.additionalProperties as OpenAPIV3.SchemaObject
+          jsonSchema.additionalProperties as OpenAPIV3.SchemaObject,
+          options
         )} })).reduce((acc, next) => Object.assign(acc, next), {})`;
       }
 
       return `{
         ${Object.entries(jsonSchema.properties ?? {})
           .map(([k, v]) => {
-            return `${JSON.stringify(k)}: ${transformJSONSchemaToFakerCode(v as OpenAPIV3.SchemaObject, k)}`;
+            return `${JSON.stringify(k)}: ${transformJSONSchemaToFakerCode(v as OpenAPIV3.SchemaObject, options, k)}`;
           })
           .join(',\n')}
     }`;
     case 'array':
       return `[...(new Array(faker.number.int({ min: ${jsonSchema.minLength ?? 1}, max: ${
         jsonSchema.maxLength ?? 'MAX_ARRAY_LENGTH'
-      } }))).keys()].map(_ => (${transformJSONSchemaToFakerCode(jsonSchema.items as OpenAPIV3.SchemaObject)}))`;
+      } }))).keys()].map(_ => (${transformJSONSchemaToFakerCode(jsonSchema.items as OpenAPIV3.SchemaObject, options)}))`;
     default:
       return 'null';
   }

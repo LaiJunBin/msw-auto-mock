@@ -17,6 +17,7 @@ cli
     `By default it will generate code for browser environment, use this flag if you want to use it in Node.js environment.`
   )
   .option('-c, --codes <keywords>', 'Comma separated list of status codes to generate responses for')
+  .option('-z, --zodios <api-client>', '')
   .example('msw-auto-mock ./githubapi.yaml -o mock.js')
   .example('msw-auto-mock ./githubapi.yaml -o mock.js -t /admin,/repo -m 30')
   .action(async (spec, options) => {

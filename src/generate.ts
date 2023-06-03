@@ -176,9 +176,12 @@ function recursiveResolveSchema(schema: OpenAPIV3.ReferenceObject | OpenAPIV3.Sc
     const resolvedSchema = resolve(schema, apiGen) as OpenAPIV3.SchemaObject;
 
     if (resolvedSchema.type === 'array') {
+      const { $ref } = resolvedSchema.items;
       resolvedSchema.items = resolve(resolvedSchema.items, apiGen);
       resolvedSchema.items = recursiveResolveSchema(resolvedSchema.items, apiGen);
+      resolvedSchema.items.$ref = $ref;
     } else if (resolvedSchema.type === 'object') {
+      resolvedSchema.$ref = schema.$ref;
       if (!resolvedSchema.properties && typeof resolvedSchema.additionalProperties === 'object') {
         if (isReference(resolvedSchema.additionalProperties)) {
           resolvedSchema.additionalProperties = recursiveResolveSchema(
