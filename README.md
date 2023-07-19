@@ -13,7 +13,7 @@ We already have all the type definitions from OpenAPI spec so hand-writing every
 Install:
 
 ```sh
-pnpm i -D https://github.com/LaiJunBin/msw-auto-mock.git
+pnpm i -D https://github.com/LaiJunBin/msw-auto-mock.git zod mswx @faker-js/faker @anatine/zod-mock
 ```
 
 Usage:
